@@ -13,12 +13,11 @@
 #include <game/version.h>
 #include <game/collision.h>
 #include <game/gamecore.h>
-#include "gamemodes/dm.h"
-#include "gamemodes/tdm.h"
-#include "gamemodes/ctf.h"
-#include "gamemodes/mod.h"
+#include "gamemodes/city.h"
 #include <algorithm>
+#include <city/components/localization.h>
 
+#include "entities/pickup.h"
 enum
 {
 	RESET,
@@ -67,6 +66,8 @@ CGameContext::~CGameContext()
 		delete m_apPlayers[i];
 	if(!m_Resetting)
 		delete m_pVoteOptionHeap;
+
+	if(m_pDiscord) delete m_pDiscord;
 }
 
 void CGameContext::Clear()
@@ -131,6 +132,8 @@ void CGameContext::CreateHammerHit(vec2 Pos)
 
 void CGameContext::CreateExplosion(vec2 Pos, int Owner, int Weapon, bool NoDamage, bool FromMonster)
 {
+	int m_HammerDmg = g_Config.m_HammerDmg;
+
 	// create the event
 	CNetEvent_Explosion *pEvent = (CNetEvent_Explosion *)m_Events.Create(NETEVENTTYPE_EXPLOSION, sizeof(CNetEvent_Explosion));
 	if(pEvent)
@@ -154,7 +157,7 @@ void CGameContext::CreateExplosion(vec2 Pos, int Owner, int Weapon, bool NoDamag
 			if(l)
 				ForceDir = normalize(Diff);
 			l = 1-clamp((l-InnerRadius)/(Radius-InnerRadius), 0.0f, 1.0f);
-			float Dmg = 6 * l;
+			float Dmg = m_HammerDmg * l;
 			if((int)Dmg)
 				apEnts[i]->TakeDamage(ForceDir*Dmg*2, (int)Dmg, Owner, Weapon);
 		}
@@ -390,10 +393,10 @@ void CGameContext::SendChatTarget_Localization_P(int To, int Category, int Numbe
 			switch(Category)
 			{
 				case CHATCATEGORY_INFO:
-					Buffer.append("| ");
+					Buffer.append("$ |: ");
 					break;
 				case CHATCATEGORY_JOIN:
-					Buffer.append("★ | ");
+					Buffer.append("★ |: ");
 					break;
 			}
 			Server()->Localization()->Format_VLP(Buffer, m_apPlayers[i]->GetLanguage(), Number, pText, VarArgs);
@@ -559,9 +562,7 @@ void CGameContext::CheckPureTuning()
 	if(!m_pController)
 		return;
 
-	if(	str_comp(m_pController->m_pGameType, "DM")==0 ||
-		str_comp(m_pController->m_pGameType, "TDM")==0 ||
-		str_comp(m_pController->m_pGameType, "CTF")==0)
+	if(	str_comp(m_pController->m_pGameType, "DM")==0)
 	{
 		CTuningParams p;
 		if(mem_comp(&p, &m_Tuning, sizeof(p)) != 0)
@@ -587,6 +588,7 @@ void CGameContext::SendTuningParams(int ClientID)
 	if (pChr) {
 		FakeParams.m_Gravity = pChr->m_GravityY != 0.5 ? pChr->m_GravityY : m_Tuning.m_Gravity;
 		FakeParams.m_PlayerCollision = (pChr->m_Core.m_Protected || pChr->m_Core.m_Afk) ? 0 : m_Tuning.m_PlayerCollision;
+		FakeParams.m_PlayerHooking = (pChr->m_Core.m_Protected || pChr->m_Core.m_Afk) ? 0 : m_Tuning.m_PlayerHooking;
 	}
 
 	int *pParams = (int *)&FakeParams;
@@ -794,6 +796,9 @@ void CGameContext::OnClientPredictedInput(int ClientID, void *pInput)
 
 void CGameContext::OnClientEnter(int ClientID)
 {
+
+	if(Discord()) Discord()->LogEnter(Server()->ClientName(ClientID));
+
 	//world.insert_entity(&players[client_id]);
 	m_apPlayers[ClientID]->Respawn();
 	char aBuf[512];
@@ -816,7 +821,7 @@ void CGameContext::OnClientConnected(int ClientID)
 	// Check which team the player should be on
 	const int StartTeam = g_Config.m_SvTournamentMode ? TEAM_SPECTATORS : m_pController->GetAutoTeam(ClientID);
 
-	m_apPlayers[ClientID] = new(ClientID) CPlayer(this, ClientID, StartTeam);
+	m_apPlayers[ClientID] = new(ClientID) CPlayer(this, ClientID, StartTeam, 0);
 	//players[client_id].init(client_id);
 	//players[client_id].client_id = client_id;
 
@@ -842,6 +847,8 @@ void CGameContext::OnClientConnected(int ClientID)
 
 void CGameContext::OnClientDrop(int ClientID, const char *pReason)
 {
+	if(Discord() && ClientID <= MAX_PLAYERS) Discord()->LogExit(Server()->ClientName(ClientID));
+
 	AbortVoteKickOnDisconnect(ClientID);
 	m_apPlayers[ClientID]->OnDisconnect(pReason);
 	delete m_apPlayers[ClientID];
@@ -876,7 +883,7 @@ void CGameContext::FormatInt(long long n, char* out) {
 		digit = i % 10;
 
 		if ((out_index + 1) % 4 == 0) {
-			out[out_index++] = '.';
+			out[out_index++] = ',';
 		}
 		out[out_index++] = digit + '0';
 	}
@@ -968,13 +975,18 @@ void CGameContext::ProcessPrivateMsg(const char* Msg, int ClientID) {
 	To = To == -1 ? pPlayer->m_PmID : To;
 
 	if (To == -1) {
-		SendChatTarget(ClientID, "This chat is only for private messages.");
-		SendChatTarget(ClientID, "Usage: <nickname>: Your Message");
+		SendChatTarget_Localization(ClientID, CHATCATEGORY_INFO, _("This chat is only for private messages."));
+		SendChatTarget_Localization(ClientID, CHATCATEGORY_INFO, _("Usage: <nickname>: Your Message"));
 		return;
 	}
 
 	SendPrivate(ClientID, To, Msg);
 	delete[] ToName;
+}
+
+void CGameContext::SendChatFromDiscord(const char *pText)
+{
+	SendChat(-1, CHAT_ALL, pText);
 }
 
 void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
@@ -1046,7 +1058,10 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 			}
 		}
 		else
+		{
+			if(m_pDiscord) Discord()->LogChat(Team, Server()->ClientName(ClientID), pMsg->m_pMessage);
 			SendChat(ClientID, Team, pMsg->m_pMessage, ClientID);
+		}
 	}
 	else if(MsgID == NETMSGTYPE_CL_CALLVOTE)
 	{
@@ -1247,7 +1262,7 @@ void CGameContext::OnMessage(int MsgID, CUnpacker *pUnpacker, int ClientID)
 		}
 
 		// City
-		if(g_Config.m_SvTournamentMode && pPlayer->GetTeam() == TEAM_SPECTATORS && !pPlayer->m_AccData.m_UserID)
+		if(g_Config.m_SvTournamentMode && pPlayer->GetTeam() == TEAM_SPECTATORS && !pPlayer->m_AccData.m_UserID && !pPlayer->m_Zomb)
 		{
 			SendBroadcast("You must be logged in to join the game", ClientID);
 			return;
@@ -1892,6 +1907,9 @@ void CGameContext::ConForceVote(IConsole::IResult *pResult, void *pUserData)
 	else if(str_comp_nocase(pType, "kick") == 0)
 	{
 		int KickID = str_toint(pValue);
+		if(KickID >= MAX_PLAYERS)
+			return;
+		
 		if(KickID < 0 || KickID >= MAX_CLIENTS || !pSelf->m_apPlayers[KickID])
 		{
 			pSelf->Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "server", "Invalid client id to kick");
@@ -2029,15 +2047,7 @@ void CGameContext::OnInit(/*class IKernel *pKernel*/)
 	//world = new GAMEWORLD;
 	//players = new CPlayer[MAX_CLIENTS];
 
-	// select gametype
-	if(str_comp(g_Config.m_SvGametype, "mod") == 0)
-		m_pController = new CGameControllerMOD(this);
-	else if(str_comp(g_Config.m_SvGametype, "ctf") == 0)
-		m_pController = new CGameControllerCTF(this);
-	else if(str_comp(g_Config.m_SvGametype, "tdm") == 0)
-		m_pController = new CGameControllerTDM(this);
-	else
-		m_pController = new CGameControllerDM(this);
+	m_pController = new CGameControllerMOD(this);
 
 	// setup core world
 	//for(int i = 0; i < MAX_CLIENTS; i++)
@@ -2102,6 +2112,16 @@ void CGameContext::OnInit(/*class IKernel *pKernel*/)
 		}
 	}
 #endif
+	try
+	{
+		m_pDiscord = new CDiscordBot(this);	
+	}
+	catch(const std::exception& e)
+	{
+		std::cerr << e.what() << '\n';
+	}
+
+	Discord()->SendChatTarget_Discord("The server is start up!", "Server");
 }
 
 int CGameContext::ProcessSpamProtection(int ClientID)
@@ -2182,28 +2202,6 @@ bool CGameContext::IsClientPlayer(int ClientID)
 	return m_apPlayers[ClientID] && m_apPlayers[ClientID]->GetTeam() == TEAM_SPECTATORS ? false : true;
 }
 
-CMonster *CGameContext::GetValidMonster(int MonsterID) const
-{
-    if(MonsterID >= MAX_MONSTERS || MonsterID < 0)
-        return 0;
-
-    if(!m_apMonsters[MonsterID])
-        return 0;
-
-    return m_apMonsters[MonsterID];
-}
-
-void CGameContext::OnMonsterDeath(int MonsterID)
-{
-    if(!GetValidMonster(MonsterID))
-        return;
-
-    m_apMonsters[MonsterID]->Destroy();
-
-    delete m_apMonsters[MonsterID];
-    m_apMonsters[MonsterID] = 0;
-}
-
 bool CGameContext::IsValidPlayer(int PlayerID)
 {
     if(PlayerID >= MAX_CLIENTS || PlayerID < 0)
@@ -2215,6 +2213,80 @@ bool CGameContext::IsValidPlayer(int PlayerID)
     return true;
 }
 
+void CGameContext::OnZombie(int ClientID, int Zomb)
+{
+}
+
+int CGameContext::CreateNewDummy(int DummyID, int DummyMode)
+{
+    if (DummyID < 0)
+    {
+        dbg_msg("dummy", "Can't get ClientID. Server is full or something like that.");
+        return -1;
+    }
+
+    if (m_apPlayers[DummyID])
+    {
+        /*m_apPlayers[DummyID]->OnDisconnect("");
+        delete m_apPlayers[DummyID];
+        m_apPlayers[DummyID] = 0;*/
+		return -1;
+    }
+
+    m_apPlayers[DummyID] = new(DummyID) CPlayer(this, DummyID, TEAM_RED, DummyMode);	
+	m_apPlayers[DummyID]->m_TeeInfos.m_UseCustomColor = 0;
+	m_apPlayers[DummyID]->m_TeeInfos.m_ColorFeet = 16776960;
+	m_apPlayers[DummyID]->m_TeeInfos.m_ColorBody = 16776960;
+    Server()->BotJoin(DummyID, DummyMode);
+
+	if(DummyMode <= 13) //Zombie dummy
+		str_copy(m_apPlayers[DummyID]->m_TeeInfos.m_SkinName, "voodoo_tee", MAX_NAME_LENGTH);
+	else // don't know :D
+		str_copy(m_apPlayers[DummyID]->m_TeeInfos.m_SkinName, "pinky", MAX_NAME_LENGTH);
+
+    dbg_msg("dummy", "Dummy connected: %d", DummyID);
+
+    //OnClientEnter(DummyID);
+
+    return DummyID;
+}
+
+void CGameContext::OnZombieKill(int ClientID)
+{
+	for(int i = 0; i++; i < 10)
+	{
+		CPickup *pPickup = new CPickup(&this->m_World, POWERUP_HEALTH, POWERUP_HEALTH);
+		pPickup->m_Pos = m_apPlayers[ClientID]->GetCharacter()->m_Pos;
+	}
+	if(m_apPlayers[ClientID] && m_apPlayers[ClientID]->GetCharacter())
+		m_apPlayers[ClientID]->DeleteCharacter();
+	if(m_apPlayers[ClientID])
+		delete m_apPlayers[ClientID];
+	m_apPlayers[ClientID] = 0;
+
+	// update spectator modes
+	for(int i = 0; i < MAX_CLIENTS; ++i)
+	{
+		if(m_apPlayers[i] && m_apPlayers[i]->m_SpectatorID == ClientID)
+			m_apPlayers[i]->m_SpectatorID = SPEC_FREEVIEW;
+	}
+}
+
+void CGameContext::SCT_Discord(const char *pText, const char *Desp)
+{
+	Discord()->SendChatTarget_Discord(pText, Desp);
+}
+
+int CGameContext::GetPlayerNum()
+{
+	int NumPlayer = 0;
+	for(int i = 0; i < MAX_PLAYERS; i++)
+	{
+		if(m_apPlayers[i])
+			NumPlayer++;
+	}
+	return NumPlayer;
+}
 
 const char *CGameContext::GameType() { return m_pController && m_pController->m_pGameType ? m_pController->m_pGameType : ""; }
 const char *CGameContext::Version() { return GAME_VERSION; }

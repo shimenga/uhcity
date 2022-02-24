@@ -58,6 +58,7 @@ enum
 	NET_CONNSTATE_PENDING=2,
 	NET_CONNSTATE_ONLINE=3,
 	NET_CONNSTATE_ERROR=4,
+	NET_CONNSTATE_BOT=5,
 
 	NET_PACKETFLAG_CONTROL=1,
 	NET_PACKETFLAG_CONNLESS=2,
@@ -191,6 +192,8 @@ public:
 	int64 LastRecvTime() const { return m_LastRecvTime; }
 
 	int AckSequence() const { return m_Ack; }
+
+	void BotConnect();
 };
 
 class CConsoleNetConnection
@@ -295,6 +298,8 @@ private:
 public:
 	int SetCallbacks(NETFUNC_NEWCLIENT pfnNewClient, NETFUNC_DELCLIENT pfnDelClient, void *pUser);
 
+	void BotInit(int BotID);
+	
 	//
 	bool Open(NETADDR BindAddr, int MaxClients, int MaxClientsPerIP, int Flags);
 	int Close();

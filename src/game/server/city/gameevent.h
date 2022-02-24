@@ -19,6 +19,7 @@ class CGameEvent {
         void Bounty();
         void MoneyExp(int Amount);
         void RisingMC();
+        void Monster();
 
         bool m_Escape;
         bool m_SilentEscape;
@@ -32,15 +33,18 @@ class CGameEvent {
         void EventInfo(int ClientID = -1);
         void Abort();
         void GetEventStr(int ID, char *Out, int Size);
+        char *GetEvent(int Type);
 
         int m_Timer;
         int m_CurrentEvent;
         int m_Multiplier;
 
         enum {
-            EVENT_BOUNTY = 0,
+            EVENT_NONE = -1,
+            EVENT_BOUNTY,
             EVENT_MONEYEXP,
             EVENT_RISINGMC,
+            EVENT_MONSTER,
 
             AMOUNT_EVENT
         };

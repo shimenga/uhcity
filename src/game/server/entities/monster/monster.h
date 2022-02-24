@@ -1,7 +1,7 @@
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 /* Copyright � 2013 Neox.                                                                                                */
 /* If you are missing that file, acquire a complete release at https://www.teeworlds.com/forum/viewtopic.php?pid=106934  */
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
 
 #ifndef GAME_SERVER_ENTITIES_MONSTER_H
 #define GAME_SERVER_ENTITIES_MONSTER_H
@@ -24,7 +24,7 @@ class CMonster : public CEntity
     enum
     {
         ENTITY_NUM = 3,
-        ENTITY_SPEED = 5,
+        ENTITY_SPEED = 0,
     };
 public:
 	//monster's size
@@ -133,3 +133,4 @@ private:
 };
 
 #endif
+*/

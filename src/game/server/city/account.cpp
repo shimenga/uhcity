@@ -193,6 +193,9 @@ void CAccount::Login(char *Username, char *Password)
 	}
 	if (user.HasMember("donor"))
 		m_pPlayer->m_AccData.m_Donor = user["donor"].GetInt();
+	
+	if (user.HasMember("hammerexplode"))
+		m_pPlayer->m_AccData.m_HammerExplode = user["hammerexplode"].GetInt();
 
 	if (user.HasMember("language"))
 		m_pPlayer->SetLanguage(user["language"].GetString());
@@ -279,6 +282,12 @@ void CAccount::Login(char *Username, char *Password)
  
 	if (m_pPlayer->m_AccData.m_GunFreeze > 3) // Remove on acc reset
 		m_pPlayer->m_AccData.m_GunFreeze = 3;
+	
+	if(m_pPlayer->m_AccData.m_Donor)
+		str_format(aBuf, sizeof(aBuf), "Donor '%s' logged in Account ID: %d and House ID: ", GameServer()->Server()->ClientName(m_pPlayer->GetCID()), m_pPlayer->m_AccData.m_UserID, m_pPlayer->m_AccData.m_HouseID);
+	else
+		str_format(aBuf, sizeof(aBuf), "Player '%s' logged in Account ID: %d", GameServer()->Server()->ClientName(m_pPlayer->GetCID()), m_pPlayer->m_AccData.m_UserID);
+	GameServer()->SCT_Discord(aBuf, "Account");
 }
 
 void CAccount::Register(char *Username, char *Password, char *TruePassword)
@@ -338,8 +347,8 @@ void CAccount::Register(char *Username, char *Password, char *TruePassword)
 	static TCHAR * ValidChars = _T("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.-_");
 	if (_tcsspnp(Username, ValidChars))
 	{
-		GameServer()->SendChatTarget(m_pPlayer->GetCID(), "Don't use invalid chars for username!");
-		GameServer()->SendChatTarget(m_pPlayer->GetCID(), "A - Z, a - z, 0 - 9, . - _");
+		GameServer()->SendChatTarget_Localization(m_pPlayer->GetCID(), CHATCATEGORY_INFO, _("Don't use invalid chars for username!"));
+		GameServer()->SendChatTarget_Localization(m_pPlayer->GetCID(), CHATCATEGORY_INFO, _("A - Z, a - z, 0 - 9, . - _"));
 		return;
 	}
 
@@ -422,11 +431,21 @@ void CAccount::Register(char *Username, char *Password, char *TruePassword)
 	writer.EndObject();
 
 	writer.Key("donor");
+	writer.StartObject();
 	writer.Int(m_pPlayer->m_AccData.m_Donor);
+	writer.EndObject();
 
+	
+	writer.StartObject();
+	writer.Key("hammerexplode");
+	writer.Int(m_pPlayer->m_AccData.m_HammerExplode);
+	writer.EndObject();
+	
+	writer.StartObject();
 	writer.Key("language");
 	writer.String(m_pPlayer->GetLanguage());
-
+	writer.EndObject();
+	
 	writer.Key("event");
 	writer.StartObject();
 	writer.Key("bounty");
@@ -634,6 +653,9 @@ void CAccount::Apply()
 	writer.Key("donor");
 	writer.Int(m_pPlayer->m_AccData.m_Donor);
 
+	writer.Key("hammerexplode");
+	writer.Int(m_pPlayer->m_AccData.m_HammerExplode);
+
 	writer.Key("language");
 	writer.String(m_pPlayer->GetLanguage());
 
@@ -810,6 +832,7 @@ void CAccount::Reset()
 	m_pPlayer->m_AccData.m_HammerWalls = 0;
 	m_pPlayer->m_AccData.m_HammerShot = 0;
 	m_pPlayer->m_AccData.m_HammerKill = 0;
+	m_pPlayer->m_AccData.m_HammerExplode = 0;
 
 	m_pPlayer->m_AccData.m_NinjaPermanent = 0;
 	m_pPlayer->m_AccData.m_NinjaStart = 0;
@@ -1012,6 +1035,7 @@ bool CAccount::OldLogin(char *Username, char *Password)
 		&m_pPlayer->m_AccData.m_HammerWalls, // Done
 		&m_pPlayer->m_AccData.m_HammerShot, // Done
 		&m_pPlayer->m_AccData.m_HammerKill, // Done
+		&m_pPlayer->m_AccData.m_HammerExplode,
 
 		&m_pPlayer->m_AccData.m_NinjaPermanent, // Done
 		&m_pPlayer->m_AccData.m_NinjaStart, // Done

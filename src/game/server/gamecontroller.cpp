@@ -45,6 +45,7 @@ IGameController::IGameController(class CGameContext *pGameServer)
 
 	m_MonsterSpawnNum = 0;
 	m_MonsterSpawnCurrentNum = 0;
+	m_MonsterEvent = false;
 }
 
 IGameController::~IGameController()
@@ -132,6 +133,8 @@ bool IGameController::CanSpawn(int Team, vec2 *pOutPos, int Type)
 			EvaluateSpawnType(&Eval, 2);
 		else if (Type == 3)
 			EvaluateSpawnType(&Eval, 3);
+		else if (Type == 4)
+			EvaluateSpawnType(&Eval, 4);
 		else
 			EvaluateSpawnType(&Eval, 0);
 	}
@@ -147,7 +150,14 @@ bool IGameController::OnEntity(int Index, vec2 Pos)
 	int SubType = 0;
 
 	if(Index == ENTITY_SPAWN)
+	{
+		if(m_MonsterEvent)
+		{
+			m_aMonsterSpawnPos[m_MonsterSpawnNum] = Pos;
+    	    m_MonsterSpawnNum ++;
+		}
 		m_aaSpawnPoints[0][m_aNumSpawnPoints[0]++] = Pos;
+	}
 	else if(Index == ENTITY_JAIL)
 		m_aaSpawnPoints[1][m_aNumSpawnPoints[1]++] = Pos;
 	else if(Index == ENTITY_INSTA_SPAWN)
@@ -155,7 +165,7 @@ bool IGameController::OnEntity(int Index, vec2 Pos)
 	else if (Index == ENTITY_AFK)
 		m_aaSpawnPoints[3][m_aNumSpawnPoints[3]++] = Pos;
 	else if (Index == ENTITY_MONSTER_PSPAWN)
-		m_aaSpawnPoints[3][m_aNumSpawnPoints[4]++] = Pos;
+		m_aaSpawnPoints[4][m_aNumSpawnPoints[4]++] = Pos;
 	else if(Index == ENTITY_ARMOR_1)
 		Type = POWERUP_ARMOR;
 	else if(Index == ENTITY_HEALTH_1)
@@ -211,7 +221,12 @@ bool IGameController::OnEntity(int Index, vec2 Pos)
 		new CVip(&GameServer()->m_World, Pos);
 	else if(Index == ENTITY_FLAGSTAND_RED)
 		new CBuyHealth(&GameServer()->m_World, Pos);
-	else if(Index == ENTITY_MONSTER)
+	else if(Index == ENTITY_MONSTER && !m_MonsterEvent)
+	{
+		m_aMonsterSpawnPos[m_MonsterSpawnNum] = Pos;
+        m_MonsterSpawnNum ++;
+	}
+	else if(Index == ENTITY_MEVENT && m_MonsterEvent)
 	{
 		m_aMonsterSpawnPos[m_MonsterSpawnNum] = Pos;
         m_MonsterSpawnNum ++;
@@ -402,6 +417,10 @@ int IGameController::OnCharacterDeath(class CCharacter *pVictim, class CPlayer *
 	// do scoreing
 	if(!pKiller || Weapon == WEAPON_GAME)
 		return 0;
+	
+	if(pVictim->GetPlayer()->m_Zomb && !pKiller)
+		return 0;
+	
 	if(pKiller == pVictim->GetPlayer())
 	{
 		if(pVictim->GetPlayer()->m_AccData.m_Money >= 50)
@@ -418,14 +437,16 @@ int IGameController::OnCharacterDeath(class CCharacter *pVictim, class CPlayer *
 				char aBuf[128];
 				char numBuf[2][32];
 				long long KillReward = 500 + pVictim->GetPlayer()->m_AccData.m_Bounty;
+				if(pVictim->GetPlayer()->m_Zomb)
+					KillReward += 10000;
 				pKiller->m_AccData.m_Money += KillReward;
+				pKiller->m_AccData.m_ExpPoints += KillReward;
 
 				GameServer()->FormatInt(pKiller->m_AccData.m_Money, numBuf[0]);
 				GameServer()->FormatInt(KillReward, numBuf[1]);
 
 				if (pVictim->GetPlayer()->m_AccData.m_Bounty) {
-					str_format(aBuf, sizeof(aBuf), "%s collected a bounty of %s$", Server()->ClientName(pKiller->GetCID()), numBuf[1]);
-					GameServer()->SendChat(-1, CGameContext::CHAT_ALL, aBuf);
+					GameServer()->SendChatTarget_Localization(-1, CHATCATEGORY_INFO, _("{str:p} collected a bounty of {str:m}$"), "p", Server()->ClientName(pKiller->GetCID()), "m", numBuf[1]);
 				}
 
 				pVictim->GetPlayer()->m_AccData.m_Bounty = 0;
@@ -433,7 +454,7 @@ int IGameController::OnCharacterDeath(class CCharacter *pVictim, class CPlayer *
 				GameServer()->RemoveFromBountyList(pVictim->GetPlayer()->GetCID());
 
 				str_format(aBuf, sizeof(aBuf), "+%s$ || current %s$", numBuf[1], numBuf[0]);
-				pKiller->GetCharacter()->GameServer()->SendChatTarget(pKiller->GetCID(), aBuf);
+				pKiller->GetCharacter()->GameServer()->SendChatTarget_Localization(pKiller->GetCID(), CHATCATEGORY_INFO, _("+{str:em}$ || current {str:cm}$"), "em", numBuf[1], "cm", numBuf[0]);
 			}
 			else
 			{
@@ -448,17 +469,16 @@ int IGameController::OnCharacterDeath(class CCharacter *pVictim, class CPlayer *
 				GameServer()->FormatInt(KillReward, numBuf[1]);
 
 				if (pVictim->GetPlayer()->m_AccData.m_Bounty) {
-					str_format(aBuf, sizeof(aBuf), "%s collected a bounty of %s$", Server()->ClientName(pKiller->GetCID()), numBuf[1]);
+					GameServer()->SendChatTarget_Localization(-1, CHATCATEGORY_INFO, _("{str:p} collected a bounty of {str:m}$"), "p", Server()->ClientName(pKiller->GetCID()), "m", numBuf[1]);
 					GameServer()->SendChat(-1, CGameContext::CHAT_ALL, aBuf);
 				}
 
-				str_format(aBuf, sizeof(aBuf), "+%s$ || Current: %s$ || %i Insta-Kills", numBuf[1], numBuf[0], pKiller->GetCharacter()->m_InstaKills);
-				pKiller->GetCharacter()->GameServer()->SendChatTarget(pKiller->GetCID(), aBuf);
+				pKiller->GetCharacter()->GameServer()->SendChatTarget_Localization(pKiller->GetCID(), CHATCATEGORY_INFO, _("+{str:b1}$ || Current: {str:b0}$ || {int:IK} Insta-Kills"), "b1", numBuf[1], "b0", numBuf[0], "IK", pKiller->GetCharacter()->m_InstaKills);
 
 				if(pVictim->m_InstaKills >= 5)
 				{
 					str_format(aBuf, sizeof(aBuf), "%s killed %s with %i kills", Server()->ClientName(pKiller->GetCID()), Server()->ClientName(pVictim->GetPlayer()->GetCID()),pVictim->m_InstaKills);
-					GameServer()->SendChat(-1, CGameContext::CHAT_ALL, aBuf);
+					GameServer()->SendChatTarget_Localization(-1, CHATCATEGORY_INFO, _("{str:k} killed {str:v} with {str:n} kills"), Server()->ClientName(pKiller->GetCID()), Server()->ClientName(pVictim->GetPlayer()->GetCID()),pVictim->m_InstaKills);
 				}
 
 				pVictim->GetPlayer()->m_AccData.m_Bounty = 0;
@@ -484,7 +504,7 @@ int IGameController::OnCharacterDeath(class CCharacter *pVictim, class CPlayer *
 	}
 
 	if(Weapon == WEAPON_SELF)
-		pVictim->GetPlayer()->m_RespawnTick = Server()->Tick()+Server()->TickSpeed()*3.0f;
+		pVictim->GetPlayer()->m_RespawnTick = 0;
 	return 0;
 }
 
@@ -494,9 +514,32 @@ void IGameController::OnCharacterSpawn(class CCharacter *pChr)
 	pChr->IncreaseHealth(pChr->GetPlayer()->m_AccData.m_Health);
 	pChr->IncreaseArmor(pChr->GetPlayer()->m_AccData.m_Armor);
 
-	// give default weapons
+	if(pChr->GetPlayer()->GetZomb(5) || pChr->GetPlayer()->GetZomb(9))//Zunner, Flombie
+	{
+		pChr->GiveWeapon(WEAPON_GUN, -1);
+		pChr->SetWeapon(WEAPON_GUN);
+	}
+	else if(pChr->GetPlayer()->GetZomb(2))//Zoomer
+	{
+		pChr->GiveWeapon(WEAPON_RIFLE, -1);
+		pChr->SetWeapon(WEAPON_RIFLE);
+	}
+	else if(pChr->GetPlayer()->GetZomb(7))//Zotter
+	{
+		pChr->GiveWeapon(WEAPON_SHOTGUN, -1);
+		pChr->SetWeapon(WEAPON_SHOTGUN);
+	}
+	else if(pChr->GetPlayer()->GetZomb(8))//Zenade
+	{
+		pChr->GiveWeapon(WEAPON_GRENADE, -1);
+		pChr->SetWeapon(WEAPON_GRENADE);
+	}
+	else if(!pChr->GetPlayer()->m_Zomb)
+	{// give default weapons
 	pChr->GiveWeapon(WEAPON_HAMMER, -1);
-	pChr->GiveWeapon(WEAPON_GUN, 10);
+	
+	if(!pChr->GetPlayer()->m_Zomb)
+		pChr->GiveWeapon(WEAPON_GUN, 10);
 
 	if(pChr->GetPlayer()->m_AccData.m_AllWeapons)
 	{
@@ -506,7 +549,21 @@ void IGameController::OnCharacterSpawn(class CCharacter *pChr)
 	}
 
 	if(pChr->GetPlayer()->m_AccData.m_NinjaStart)
-		pChr->GiveNinja();
+		pChr->GiveNinja();}
+	else//Zaby, Zooker, Zamer, Zaster, Zele, Zinja, Zeater (Ninja gets automatically)
+	{
+		pChr->GiveWeapon(WEAPON_HAMMER, -1);
+		pChr->SetWeapon(WEAPON_HAMMER);
+	}
+
+	if(pChr->GetPlayer()->m_onMonster)
+	{	
+		pChr->GiveWeapon(WEAPON_HAMMER, 10);
+		pChr->GiveWeapon(WEAPON_GUN, 10);
+		pChr->GiveWeapon(WEAPON_RIFLE, 10);
+		pChr->GiveWeapon(WEAPON_GRENADE, 10);
+		pChr->GiveWeapon(WEAPON_SHOTGUN, 10);
+	}
 }
 
 void IGameController::DoWarmup(int Seconds)
@@ -559,6 +616,8 @@ void IGameController::Tick()
 		if(!m_Warmup)
 			StartRound();
 	}
+	
+	CheckZombie();
 
 	if(m_GameOverTick != -1)
 	{
@@ -675,45 +734,34 @@ void IGameController::Tick()
 
 	// Scheduled server message
 	if (Server()->Tick() % 30000 == 0) { // every 10 min
-		GameServer()->SendChatTarget_Localization(-1, CHATCATEGORY_JOIN, _("Visit our Discord server https://discord.gg/Rstb8ge"));
+		GameServer()->SendChatTarget_Localization(-1, CHATCATEGORY_JOIN, _("Visit our Discord server https://discord.gg/PhgUmS2qey"));
 	}
 
 	DoWincheck();
 
-	//Monster
-	int AliveMonsters = 0;
-    for(int i = 0; i < MAX_MONSTERS; i ++)
-        if(GameServer()->GetValidMonster(i))
-            AliveMonsters ++;
-
-    m_AliveMonsters = AliveMonsters;
-
-	for(int i = 0; i < 3; i ++)
+	/*for(int i = 0; i <= MAX_MONSTERS; i++)
     {
-        if(!GameServer()->GetValidMonster(i))
-        {
-            NewMonster(i);
-            m_AliveMonsters += 5;
-        }
-    }
+    	if(!GameServer()->GetValidMonster(i) && m_AliveMonsters <= MAX_MONSTERS)
+    	{
+    	    NewMonster(i);
+			m_AliveMonsters++;
+		}
+    }*/
 }
 
 void IGameController::NewMonster(int MonsterID)
 {
+	/*int m_Type = 0;
 	if(!g_Config.m_EnableMonster)
 		return;
-    if(MonsterID >= 0 && MonsterID < 3)
+    m_Type = rand()%NUM_WEAPONS;
+	if(MonsterID >= 0 && MonsterID <= MAX_MONSTERS)
     {
         if(!GameServer()->m_apMonsters[MonsterID])
         {
-            GameServer()->m_apMonsters[MonsterID] = new CMonster(&GameServer()->m_World, TYPE_HAMMER, MonsterID, 5, 5, 2);
-			GameServer()->m_apMonsters[MonsterID] = new CMonster(&GameServer()->m_World, TYPE_GUN, MonsterID, 5, 5, 2);
-			GameServer()->m_apMonsters[MonsterID] = new CMonster(&GameServer()->m_World, TYPE_SHOTGUN, MonsterID, 5, 5, 2);
-			GameServer()->m_apMonsters[MonsterID] = new CMonster(&GameServer()->m_World, TYPE_GRENADE, MonsterID, 5, 5, 2);
-			GameServer()->m_apMonsters[MonsterID] = new CMonster(&GameServer()->m_World, TYPE_LASER, MonsterID, 5, 5, 2);
-			GameServer()->m_apMonsters[MonsterID] = new CMonster(&GameServer()->m_World, TYPE_NINJA, MonsterID, 5, 5, 2);
+            GameServer()->m_apMonsters[MonsterID] = new CMonster(&GameServer()->m_World, m_Type, MonsterID, 10, 10, 5);
         }
-    }
+    }*/
 }
 
 bool IGameController::IsTeamplay() const
@@ -906,4 +954,36 @@ int IGameController::ClampTeam(int Team)
 	if(IsTeamplay())
 		return Team&1;
 	return 0;
+}
+
+void IGameController::CheckZombie()
+{
+	if(!g_Config.m_EnableMonster)
+		return;
+	for(int i = MAX_PLAYERS + 1; i < MAX_CLIENTS; i++)//...
+	{
+		if(!GameServer()->m_apPlayers[i])//Check if the CID is free
+		{
+			int Random = RandZomb();
+			if(Random == -1)
+				break;
+			GameServer()->CreateNewDummy(i, Random);
+			m_Zombie[Random]--;
+		}
+	}
+}
+
+int IGameController::RandZomb()
+{
+	int size = (int)(sizeof(m_Zombie)/sizeof(m_Zombie[0]));
+	int Rand = rand()%size;
+	int WTF = 1;
+	while(!m_Zombie[Rand])
+	{
+		Rand = rand()%size;
+		WTF--;
+		if(!WTF) // 100% CPU :D (Very nice, but it's a JOKE! :P)
+			return -1;
+	}
+	return Rand;
 }

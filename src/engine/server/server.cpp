@@ -444,20 +444,22 @@ void CServer::GetClientAddr(int ClientID, char *pAddrStr, int Size)
 
 const char *CServer::ClientName(int ClientID)
 {
-	if(ClientID < 0 || ClientID >= MAX_CLIENTS || m_aClients[ClientID].m_State == CServer::CClient::STATE_EMPTY)
+//	if(m_aClients[ClientID].m_State == CClient::STATE_BOT || ClientID > MAX_PLAYERS)
+//		return "[*/Zomb*]";//needed
+	if(ClientID < 0|| ClientID >= MAX_CLIENTS || m_aClients[ClientID].m_State == CServer::CClient::STATE_EMPTY)
 		return "(invalid)";
-	if(m_aClients[ClientID].m_State == CServer::CClient::STATE_INGAME)
+
+	if(m_aClients[ClientID].m_State == CServer::CClient::STATE_INGAME || m_aClients[ClientID].m_State == CClient::STATE_BOT)
 		return m_aClients[ClientID].m_aName;
 	else
 		return "(connecting)";
-
 }
 
 const char *CServer::ClientClan(int ClientID)
 {
 	if(ClientID < 0 || ClientID >= MAX_CLIENTS || m_aClients[ClientID].m_State == CServer::CClient::STATE_EMPTY)
 		return "";
-	if(m_aClients[ClientID].m_State == CServer::CClient::STATE_INGAME)
+	if(m_aClients[ClientID].m_State == CServer::CClient::STATE_INGAME || m_aClients[ClientID].m_State == CServer::CClient::STATE_BOT)
 		return m_aClients[ClientID].m_aClan;
 	else
 		return "";
@@ -475,7 +477,7 @@ int CServer::ClientCountry(int ClientID)
 
 bool CServer::ClientIngame(int ClientID)
 {
-	return ClientID >= 0 && ClientID < MAX_CLIENTS && m_aClients[ClientID].m_State == CServer::CClient::STATE_INGAME;
+	return ClientID >= 0 && ClientID < MAX_CLIENTS && (m_aClients[ClientID].m_State == CServer::CClient::STATE_INGAME);
 }
 
 int CServer::ClientIdByName(const char* Name) {
@@ -493,6 +495,9 @@ int CServer::ClientIdByName(const char* Name) {
 
 int CServer::SendMsg(CMsgPacker *pMsg, int Flags, int ClientID)
 {
+	if(m_aClients[ClientID].m_State == CClient::STATE_BOT || ClientID > MAX_PLAYERS)
+		return -1;
+
 	return SendMsgEx(pMsg, Flags, ClientID, false);
 }
 
@@ -528,7 +533,7 @@ int CServer::SendMsgEx(CMsgPacker *pMsg, int Flags, int ClientID, bool System)
 		{
 			// broadcast
 			int i;
-			for(i = 0; i < MAX_CLIENTS; i++)
+			for(i = 0; i < MAX_PLAYERS; i++)
 				if(m_aClients[i].m_State == CClient::STATE_INGAME)
 				{
 					Packet.m_ClientID = i;
@@ -561,10 +566,10 @@ void CServer::DoSnapshot()
 	}
 
 	// create snapshots for all clients
-	for(int i = 0; i < MAX_CLIENTS; i++)
+	for(int i = 0; i < MAX_PLAYERS; i++)
 	{
 		// client must be ingame to recive snapshots
-		if(m_aClients[i].m_State != CClient::STATE_INGAME)
+		if(m_aClients[i].m_State != CClient::STATE_INGAME && m_aClients[i].m_State != CClient::STATE_BOT)
 			continue;
 
 		// this client is trying to recover, don't spam snapshots
@@ -1101,9 +1106,9 @@ void CServer::SendServerInfo(NETADDR *pAddr, int Token, bool Extended, int Offse
 
 	// count the players
 	int PlayerCount = 0, ClientCount = 0;
-	for(int i = 0; i < MAX_CLIENTS; i++)
+	for(int i = 0; i < MAX_PLAYERS; i++)
 	{
-		if(m_aClients[i].m_State != CClient::STATE_EMPTY)
+		if(m_aClients[i].m_State != CClient::STATE_EMPTY && m_aClients[i].m_State != CClient::STATE_BOT)
 		{
 			if(GameServer()->IsClientPlayer(i))
 				PlayerCount++;
@@ -1178,9 +1183,9 @@ void CServer::SendServerInfo(NETADDR *pAddr, int Token, bool Extended, int Offse
 	int Skip = Offset;
 	int Take = ClientsPerPacket;
 
-	for(i = 0; i < MAX_CLIENTS; i++)
+	for(i = 0; i < MAX_PLAYERS; i++)
 	{
-		if(m_aClients[i].m_State != CClient::STATE_EMPTY)
+		if(m_aClients[i].m_State != CClient::STATE_EMPTY && m_aClients[i].m_State != CClient::STATE_BOT)
 		{
 			if (Skip-- > 0)
 				continue;
@@ -1209,9 +1214,9 @@ void CServer::SendServerInfo(NETADDR *pAddr, int Token, bool Extended, int Offse
 
 void CServer::UpdateServerInfo()
 {
-	for(int i = 0; i < MAX_CLIENTS; ++i)
+	for(int i = 0; i < MAX_PLAYERS; ++i)
 	{
-		if(m_aClients[i].m_State != CClient::STATE_EMPTY)
+		if(m_aClients[i].m_State != CClient::STATE_EMPTY && m_aClients[i].m_State != CClient::STATE_BOT)
 		{
 			NETADDR Addr = m_NetServer.ClientAddr(i);
 			SendServerInfo(&Addr, -1, true);
@@ -1450,9 +1455,9 @@ int CServer::Run()
 				NewTicks++;
 
 				// apply new input
-				for(int c = 0; c < MAX_CLIENTS; c++)
+				for(int c = 0; c < MAX_PLAYERS; c++)
 				{
-					if(m_aClients[c].m_State == CClient::STATE_EMPTY)
+					if(m_aClients[c].m_State == CClient::STATE_EMPTY || m_aClients[c].m_State == CClient::STATE_BOT)
 						continue;
 					for(int i = 0; i < 200; i++)
 					{
@@ -1511,6 +1516,7 @@ int CServer::Run()
 			net_socket_read_wait(m_NetServer.Socket(), 5);
 		}
 	}
+
 	// disconnect all clients on shutdown
 	for(int i = 0; i < MAX_CLIENTS; ++i)
 	{
@@ -1687,7 +1693,7 @@ void CServer::ConStatus(IConsole::IResult *pResult, void *pUser)
 
 	for(i = 0; i < MAX_CLIENTS; i++)
 	{
-		if(pServer->m_aClients[i].m_State != CClient::STATE_EMPTY)
+		if(pServer->m_aClients[i].m_State != CClient::STATE_EMPTY && pServer->m_aClients[i].m_State != CClient::STATE_BOT)
 		{
 			Addr = pServer->m_NetServer.ClientAddr(i);
 			net_addr_str(&Addr, aAddrStr, sizeof(aAddrStr));
@@ -1704,6 +1710,8 @@ void CServer::ConStatus(IConsole::IResult *pResult, void *pUser)
 
 void CServer::ConShutdown(IConsole::IResult *pResult, void *pUser)
 {
+	CServer* pServer = (CServer *)pUser;
+	pServer->GameServer()->SCT_Discord("Server is down! All players are offline!", "Server");
 	((CServer *)pUser)->m_RunServer = 0;
 }
 
@@ -1969,4 +1977,60 @@ const char* CServer::GetClientLanguage(int ClientID)
 void CServer::SetClientLanguage(int ClientID, const char* pLanguage)
 {
 	str_copy(m_aClients[ClientID].m_aLanguage, pLanguage, sizeof(m_aClients[ClientID].m_aLanguage));
+}
+
+void CNetServer::BotInit(int BotID)
+{
+    m_aSlots[BotID].m_Connection.BotConnect();
+}
+
+void CServer::BotJoin(int BotID, int BotMode)
+{
+	const char *pNames[] = {
+        "The Man",
+        "Zaby",
+        "Zoomer",
+        "Zooker",
+        "Zamer",
+        "Zunny",
+        "Zaster",
+        "Zotter",
+        "Zenade",
+        "Flombie",
+        "Zinja",
+        "Zele",
+        "Zinvis",
+        "Zeater",
+        "AniBot-pdf",
+        "Seabot",
+        "Chara",
+    };
+    const char *pClans[] = { 
+        "FFS",
+        "[*/Zomb*]",
+        "[*/Zomb*]",
+        "[*/Zomb*]",
+        "[*/Zomb*]",
+        "[*/Zomb*]",
+        "[*/Zomb*]",
+        "[*/Zomb*]",
+        "[*/Zomb*]",
+        "[*/Zomb*]",
+        "[*/Zomb*]",
+        "[*/Zomb*]",
+        "[*/Zomb*]",
+        "[*/Zomb*]",
+        "[*/Zomb*]",
+        "[*/Zomb*]",
+        "[*/Zomb*]",
+        "[*/Zomb*]",
+        "[*/Zomb*]"
+    };
+
+    m_NetServer.BotInit(BotID);
+    m_aClients[BotID].m_State = CClient::STATE_BOT;
+    m_aClients[BotID].m_Authed = AUTHED_NO;
+
+    str_copy(m_aClients[BotID].m_aName, pNames[BotMode], MAX_NAME_LENGTH); //Namen des Jeweiligen Dummys setzten
+    str_copy(m_aClients[BotID].m_aClan, pClans[BotMode], MAX_CLAN_LENGTH); //Clan des jeweiligen Dummys setzten
 }

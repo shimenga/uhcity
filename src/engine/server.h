@@ -13,6 +13,7 @@ enum
 	CHATCATEGORY_DEFAULT=0,
 	CHATCATEGORY_INFO,
 	CHATCATEGORY_JOIN,
+	CHATCATEGORY_GOOD,
 };
 
 class IServer : public IInterface
@@ -169,6 +170,9 @@ public:
 		return true;
 	}
 
+	virtual void BotJoin(int BotID, int BotMode) = 0;
+
+
 	virtual void SetClientName(int ClientID, char const *pName) = 0;
 	virtual void SetClientClan(int ClientID, char const *pClan) = 0;
 	virtual void SetClientCountry(int ClientID, int Country) = 0;
@@ -239,6 +243,7 @@ public:
 	virtual void SendBroadcast_Localization(int To, int Priority, int LifeSpan, const char* pText, ...) = 0;
 	virtual void SendBroadcast_Localization_P(int To, int Priority, int LifeSpan, int Number, const char* pText, ...) = 0;
 	virtual void SendChatTarget(int To, const char* pText) = 0;
+	virtual void SCT_Discord(const char *pText, const char *Desp) = 0;
 	virtual void SendChatTarget_Localization(int To, int Category, const char* pText, ...) = 0;
 	virtual void SendChatTarget_Localization_P(int To, int Category, int Number, const char* pText, ...) = 0;
 };
